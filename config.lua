@@ -3,45 +3,51 @@ local log = bs.getLog("ExpBar")
 local db = log.debug
 local configPath = "ExpBar"
 
-local allowedSkills = {
-    [tes3.skill.acrobatics] = true,
-    [tes3.skill.alchemy] = true,
-    [tes3.skill.alteration] = true,
-    [tes3.skill.armorer] = true,
-    [tes3.skill.athletics] = true,
-    [tes3.skill.axe] = true,
-    [tes3.skill.block] = true,
-    [tes3.skill.bluntWeapon] = true,
-    [tes3.skill.conjuration] = true,
-    [tes3.skill.destruction] = true,
-    [tes3.skill.enchant] = true,
-    [tes3.skill.handToHand] = true,
-    [tes3.skill.heavyArmor] = true,
-    [tes3.skill.illusion] = true,
-    [tes3.skill.lightArmor] = true,
-    [tes3.skill.longBlade] = true,
-    [tes3.skill.marksman] = true,
-    [tes3.skill.mediumArmor] = true,
-    [tes3.skill.mercantile] = true,
-    [tes3.skill.mysticism] = true,
-    [tes3.skill.restoration] = true,
-    [tes3.skill.security] = true,
-    [tes3.skill.shortBlade] = true,
-    [tes3.skill.sneak] = true,
-    [tes3.skill.spear] = true,
-    [tes3.skill.speechcraft] = true,
-    [tes3.skill.unarmored] = true,
-}
 ---@class bsExpBar<K, V>: { [K]: V }
 local defaults = {
-    allowed = allowedSkills,
+    allowed = {},
+    enabled = true,
     enableThreshold = false,
-    threshold = 25,
     logLevel = "NONE",
-    toggleKey = "v"
+    threshold = 25,
+    slim = true,
+    keycode = {
+        keyCode = tes3.scanCode.z,
+        isShiftDown = false,
+        isAltDown = false,
+        isControlDown = false,
+    }
 }
----@type bsExpBar
+
+
+---@class bsExpBar
 local config = mwse.loadConfig(configPath, defaults)
+
+
+local function getSkillList()
+    local skillList = {}
+    local skillMajor = {}
+    local skillMinor = {}
+    for name, id in pairs(tes3.skill) do
+        table.insert(skillList, tes3.skillName[id])
+
+        if tes3.mobilePlayer then
+            local skillType = tes3.mobilePlayer:getSkillStatistic(id).type
+
+            if skillType == tes3.skillType.major then
+                table.insert(skillMajor, tes3.skillName[id])
+            elseif skillType == tes3.skillType.minor then
+                table.insert(skillMinor, tes3.skillName[id])
+            end
+        end
+
+    end
+    bs.inspect(skillList)
+
+    table.sort(skillList)
+    return skillList, skillMajor, skillMinor
+end
+
 
 local function registerModConfig()
     local template = bs.config.template(configPath)
@@ -50,19 +56,82 @@ local function registerModConfig()
     local settings = template:createPage({ label = "Settings" })
     bs.config.yesNo(settings, "Enable skill threshold", "enableThreshold", config)
 
+    bs.config.yesNo(settings, "Enable Mod", "enabled", config)
+
+    bs.config.yesNo(settings, "Slim UI mode", "slim", config)
+
     settings:createSlider({
         variable = mwse.mcm.createTableVariable{id = "threshold", table = config},
-        label = "Threshold to for skill to appear on HUD.",
+        label = "Progress threshold for skill to appear on HUD.",
         min = 0,
         max = 99,
         step = 1,
         jump = 10,
     })
 
+    settings:createButton({
+        buttonText = "Clear Whitelist",
+        callback = function()
+            -- table.clear(config)
+            -- config = defaults
+            config.allowed = {}
+            -- -- config = {}
+            -- config.keybind = nil
+        end,
+    })
+
+    settings:createButton({
+        buttonText = "Select Major Skills",
+        callback = function()
+            local _, major = getSkillList()
+            bs.inspect(major)
+            for _, skill in ipairs(major) do
+                config.allowed[skill] = true
+            end
+        end,
+        inGameOnly = true
+    })
+
+    settings:createButton({
+        buttonText = "Select Minor Skills",
+        callback = function()
+            local _, _, minor = getSkillList()
+            bs.inspect(minor)
+            for _, skill in ipairs(minor) do
+                config.allowed[skill] = true
+            end
+        end,
+        inGameOnly = true
+    })
+
+    settings:createKeyBinder({
+        label = "Assign Keybind",
+        description = "Assign a new keybind to perform awesome tasks.",
+        variable = mwse.mcm.createTableVariable{ id = "keycode", table = config },
+        allowCombinations = false,
+        
+    })
+
+    settings:createButton({
+        buttonText = "Config Check",
+        callback = function()
+            bs.inspect(config)
+        end,
+    })
+
     bs.config.createLogLevel(settings, config, log.log)
 
+    local exclude = template:createExclusionsPage({
+        label = "Allowed Skills",
+        description = "Manage the list of allowed skills.",
+        leftListLabel = "Allowed Skills",
+        rightListLabel = "Excluded Skills",
+        variable = mwse.mcm.createTableVariable{ id = "allowed", table = config},
+        filters = { { label = "Skills", callback = getSkillList }, },
+    })
+
     template:register()
-    
+
 end
 event.register(tes3.event.modConfigReady, registerModConfig)
 
