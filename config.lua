@@ -8,7 +8,7 @@ local defaults = {
     allowed = {},
     enabled = true,
     enableThreshold = false,
-    logLevel = "NONE",
+    logLevel = "WARN",
     threshold = 25,
     slim = true,
     keycode = {
@@ -16,13 +16,14 @@ local defaults = {
         isShiftDown = false,
         isAltDown = false,
         isControlDown = false,
-    }
+    },
+    refreshRate = 1.2,
+    opacity = 1
 }
 
 
 ---@class bsExpBar
 local config = mwse.loadConfig(configPath, defaults)
-
 
 local function getSkillList()
     local skillList = {}
@@ -43,6 +44,7 @@ local function getSkillList()
 
     end
     bs.inspect(skillList)
+    event.trigger("bsExpBar:RefreshUI")
 
     table.sort(skillList)
     return skillList, skillMajor, skillMinor
@@ -62,12 +64,43 @@ local function registerModConfig()
 
     settings:createSlider({
         variable = mwse.mcm.createTableVariable{id = "threshold", table = config},
-        label = "Progress threshold for skill to appear on HUD.",
+        label = "Progress threshold for skill to appear on HUD",
         min = 0,
         max = 99,
         step = 1,
         jump = 10,
     })
+
+    settings:createSlider({
+        variable = mwse.mcm.createTableVariable{id = "refreshRate", table = config},
+        label = "Update Rate in seconds (Values under 1 tend to be slower, 1.2 seems to be the sweetspot)",
+        min = 0.8,
+        max = 20,
+        step = 0.01,
+        jump = 0.10,
+        decimalPlaces = 2
+    })
+
+    local opacity = settings:createSlider({
+        variable = mwse.mcm.createTableVariable{id = "opacity", table = config},
+        label = "Opacity of Menu",
+        min = 0,
+        max = 1,
+        step = 0.01,
+        jump = 0.10,
+        decimalPlaces = 2,
+        callback = function ()
+            bs.msg("Slider Moved")
+            event.trigger("bsExpBar:RefreshUI")
+        end
+    })
+
+    settings:createButton{
+        buttonText = "Preview",
+        callback = function ()
+            event.trigger("bsExpBar:RefreshUI")
+        end
+    }
 
     settings:createButton({
         buttonText = "Clear Whitelist",
@@ -75,6 +108,9 @@ local function registerModConfig()
             -- table.clear(config)
             -- config = defaults
             config.allowed = {}
+
+            event.trigger("bsExpBar:RefreshUI")
+
             -- -- config = {}
             -- config.keybind = nil
         end,
@@ -88,6 +124,7 @@ local function registerModConfig()
             for _, skill in ipairs(major) do
                 config.allowed[skill] = true
             end
+            event.trigger("bsExpBar:RefreshUI")
         end,
         inGameOnly = true
     })
@@ -100,6 +137,7 @@ local function registerModConfig()
             for _, skill in ipairs(minor) do
                 config.allowed[skill] = true
             end
+            event.trigger("bsExpBar:RefreshUI")
         end,
         inGameOnly = true
     })
@@ -109,19 +147,18 @@ local function registerModConfig()
         description = "Assign a new keybind to perform awesome tasks.",
         variable = mwse.mcm.createTableVariable{ id = "keycode", table = config },
         allowCombinations = false,
-        
     })
 
-    settings:createButton({
-        buttonText = "Config Check",
-        callback = function()
-            bs.inspect(config)
-        end,
-    })
+    -- settings:createButton({
+    --     buttonText = "Config Check",
+    --     callback = function()
+    --         bs.inspect(config)
+    --     end,
+    -- })
 
     bs.config.createLogLevel(settings, config, log.log)
 
-    local exclude = template:createExclusionsPage({
+    template:createExclusionsPage({
         label = "Allowed Skills",
         description = "Manage the list of allowed skills.",
         leftListLabel = "Allowed Skills",

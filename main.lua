@@ -1,18 +1,24 @@
 local bs = require("BeefStranger.functions")
 local config = require("BeefStranger.ExpBar.config")
 local common = require("BeefStranger.ExpBar.common")
+-- local log = bs.createLog("ExpBar")
 local log = bs.getLog("ExpBar")
 log.log:setLogLevel(config.logLevel)
-local db, tr, err = log.debug, log.trace, log.error
+local db, tr, er = log.debug, log.trace, log.error
+
+
 
 event.register("initialized", function()
-    err("logLevel - %s", config.logLevel)
+    print(tostring(log))
+    er("logLevel - %s", config.logLevel)
+    db("Debug")
     print("[MWSE:ExpBar] initialized")
     bs.sound.register()
 end)
 
+
 local lastUpdate = 0 --Gets changed to current time
-local cooldown = 1 --The cooldown for exerciseSkill
+-- local cooldown = 1 --The cooldown for exerciseSkill
 local activeSkillBar = {} --Stores a list of active expBars
 local skillUpdates = {} --Table to mark a skill as needing an update
 local lastProgress = {}
@@ -24,8 +30,8 @@ local skillProgressDebug = {} --Debug table to inspect everything in player.skil
 ---------------------------------------------------------------------------------
 ---@return table skillOutput Table with a list of all allowed skills and their name/level/progress
 local function getPlayerSkills()
-    tr("enabled = %s", config.enabled)
-    tr("getPlayerSkills triggered")
+    ---tr"enabled = %s", config.enabled)
+    ---tr"getPlayerSkills triggered")
 
     local player = tes3.mobilePlayer
     local class = player.object.class
@@ -66,7 +72,7 @@ local function getPlayerSkills()
         local skillType = tes3.mobilePlayer:getSkillStatistic(skillId).type
 
         -- bs.inspect(config.allowed)
-        tr("skillName %s - %s", skillName, config.allowed[skillName])
+        ---tr"skillName %s - %s", skillName, config.allowed[skillName])
 
         if config.allowed[skillName] then
             local progressRequirement = 1 + skillLevel
@@ -103,8 +109,13 @@ local function saveMenuPosition(menu)
     if not tes3.player.data.expMenuPos then
         tes3.player.data.expMenuPos = {}
     end
+
+    -- tes3.player.data.expMenuPos.selected = config.allowed
+
     tes3.player.data.expMenuPos.x = menu.positionX
     tes3.player.data.expMenuPos.y = menu.positionY
+    tes3.player.data.expMenuPos.w = menu.width
+    tes3.player.data.expMenuPos.h = menu.height
 
     local scroller = menu:findChild("scroller")
     if scroller then
@@ -114,8 +125,14 @@ end
 
 local function restoreMenuPosition(menu)
     if tes3.player.data.expMenuPos then
+
+        -- config.allowed = tes3.player.data.expMenuPos.selected
+
         menu.positionX = tes3.player.data.expMenuPos.x
         menu.positionY = tes3.player.data.expMenuPos.y
+        menu.width = tes3.player.data.expMenuPos.w
+        menu.height = tes3.player.data.expMenuPos.h
+
         local scroller = menu:findChild("scroller")
         if scroller then
             scroller.widget.positionY = tes3.player.data.expMenuPos.sY or 0
@@ -138,6 +155,7 @@ local function expBarUI()
     expMenu.width = 300
     expMenu.height = 400
     expMenu.flowDirection = tes3.flowDirection.topToBottom
+    expMenu.alpha = config.opacity
 
     ---------------------------------------------------------------------------------
     ---Scroll bar creation
@@ -161,28 +179,37 @@ local function expBarUI()
             local skillBlock = skills:createBlock { id = "Text-Icon" } --to be able to have this go lefToRight but have bar below,
             skillBlock.flowDirection = tes3.flowDirection.leftToRight
             skillBlock.widthProportional = 1
-            skillBlock.autoHeight = true
+            skillBlock.height = 30
+            -- skillBlock.autoHeight = true
             ---------------------------------------------------------------------------------
             ---SkillLabel creation
             ---------------------------------------------------------------------------------
-            local skillLabel = skillBlock:createLabel { id = "Label", text = name .. " - " .. level }
-            skillLabel.borderTop = 8
-            skillLabel.borderBottom = 8
-            skillLabel.widthProportional = 1
-            skillLabel.autoHeight = true
+            local label = skillBlock:createLabel { id = "Label", text = name }
+            label.borderTop = 8
+            label.borderBottom = 8
+            label.absolutePosAlignX = 0.6
+            label.positionY = -8
+            -- label.borderLeft = 35
+            label.borderRight = 6
+
+            local lvl = skillBlock:createLabel{id = "lvl", text = tostring(level)}
+            lvl.absolutePosAlignX = 1
+            lvl.positionY = -12
+            -- skillLabel.widthProportional = 1
+            -- skillLabel.autoHeight = true
 
             ---------------------------------------------------------------------------------
             ---Image creation
             ---------------------------------------------------------------------------------
-            local image = skillBlock:createImage{ id = "Icon", path = common.skillIcon[name] }
-            image.borderBottom = 5
-            image.borderTop = 3
-            image.width = 24
-            image.height = 24
-            image.absolutePosAlignX = 1.0 --Put on right edge
-            image.absolutePosAlignY = 0.7
-            image.imageScaleX = 0.75
-            image.imageScaleY = 0.75
+            local icon = skillBlock:createImage{ id = "Icon", path = common.skillIcon[name] }
+            icon.borderBottom = 5
+            icon.borderTop = 3
+            icon.width = 24
+            icon.height = 24
+            icon.absolutePosAlignX = 0 --Put on left edge
+            icon.absolutePosAlignY = 0.07
+            icon.imageScaleX = 0.75
+            icon.imageScaleY = 0.75
 
             skills:register("mouseClick", function()
                 bs.yesNo("Add %s to the blacklist?", name, function(e)
@@ -254,8 +281,10 @@ local function skillUpdate()
         if info then
             local progress = info.normalizedProgress
             local last = lastProgress[skillID] or 0
-            if (progress >= config.threshold or config.threshold == false) or progress - last >= 1 then
+            
+            if --[[ (progress >= config.threshold or config.threshold == false) and ]] progress - last >= 1 then
                 updateFillBar(info.skillName, progress)
+                db("[skillUpdate]: progress - %s, last - %s, calc - %s", progress, last, progress - last)
             end
             lastProgress[skillID] = progress
         end
@@ -266,9 +295,14 @@ end
 ---@param e exerciseSkillEventData
 event.register("exerciseSkill", function(e)
     if config.enabled == false then return end
+
     skillUpdates[e.skill] = true --set e.skill to true in skillUpdates table
+    local cooldown = config.refreshRate
+
     local currentTime = os.clock()
     if currentTime - lastUpdate >= cooldown then
+        db("refreshRate - %s", cooldown)
+        db("time %s, last %s, diff - %s", currentTime, lastUpdate, currentTime - lastUpdate)
         lastUpdate = currentTime
         skillUpdate()
     end
@@ -276,7 +310,8 @@ end)
 
 event.register("skillRaised", function(e)
     if config.enabled == false then return end
-    local menu = tes3ui.findMenu(tes3ui.registerID("bsExpBar"))
+    local menu = tes3ui.findMenu("bsExpBar")
+
     if menu then
         saveMenuPosition(menu)
         menu:destroy() -- Destroy then remake expBar on skill level gain
@@ -284,13 +319,16 @@ event.register("skillRaised", function(e)
     end
 end)
 
+
 ---@param e keyUpEventData
 event.register("keyUp", function (e)
     if not tes3.onMainMenu() and e.keyCode == config.keycode.keyCode and tes3.isCharGenFinished() then
+        if config.enabled == false then return end
+
+
+        -- event.trigger("bxExpBar:RefreshUI")
 
         db("%s pressed", config.keycode.keyCode)
-
-        if config.enabled == false then return end
 
         local menu = tes3ui.findMenu("bsExpBar")
         if menu then
@@ -299,5 +337,68 @@ event.register("keyUp", function (e)
         else
             expBarUI()
         end
+    end
+end)
+
+local refreshExp = "bsExpBar:RefreshUI"
+
+
+---Why is Hand to hand only different in this menu 
+local skillNameMapping = {
+    ["Hand-to-hand"] = "Hand to Hand",
+}
+
+event.register("menuEnter", function(e)
+    local menu = tes3ui.findMenu("MenuStat")
+
+    if menu and menu.visible then
+        er("MenuStat visible")
+        local scrollPane = menu:findChild("PartScrollPane_pane")
+
+        for _, child in ipairs(scrollPane.children) do
+            local major = child:findChild("MenuStat_major_name")
+            local minor = child:findChild("MenuStat_minor_name")
+            local misc = child:findChild("MenuStat_misc_name")
+
+            if major then
+                local correctedMajor = skillNameMapping[major.text] or major.text
+                major:register(tes3.uiEvent.mouseClick, function()
+                    ---err("Major: %s clicked", major.text)
+                    config.allowed[correctedMajor] = true
+                    event.trigger("bsExpBar:RefreshUI")
+                end)
+            elseif minor then
+                local correctedMinor = skillNameMapping[minor.text] or minor.text
+                minor:register(tes3.uiEvent.mouseClick, function()
+                    ---err("Minor: %s clicked", minor.text)
+                    er("CorrectMinor: %s clicked", correctedMinor)
+                    config.allowed[correctedMinor] = true
+                    event.trigger("bsExpBar:RefreshUI")
+                end)
+            elseif misc then
+                local correctedMisc = skillNameMapping[misc.text] or misc.text
+                misc:register(tes3.uiEvent.mouseClick, function()
+                    ---err("Misc: %s clicked", misc.text)
+                    er("CorrectMisc: %s clicked", correctedMisc)
+                    config.allowed[correctedMisc] = true
+                    event.trigger("bsExpBar:RefreshUI")
+                end)
+            end
+        end
+
+        menu:updateLayout()
+    end
+end)
+
+
+---Custom event test
+event.register(refreshExp, function ()
+    if tes3.player then
+        local menu = tes3ui.findMenu("bsExpBar")
+        if menu then
+            saveMenuPosition(menu)
+            menu:destroy()
+        end
+        expBarUI()
     end
 end)
